@@ -12,7 +12,9 @@
 #include <iostream>
 #include <thread>
 //#include <atomic>
+#include "json.hpp"
 
+using json = nlohmann::json;
 using namespace std;
 
 //atomic<int> connected(1);
@@ -193,11 +195,18 @@ void makeMessage(int op, int SocketFD)
 		// send file
 		case 3:
 		{
+			buffer[0] = 'F';
+
+
 			break;
 		}
 		// who is in the server?
 		case 4:
 		{
+			buffer[0] = 'T';
+
+			write(SocketFD, buffer, 1);
+
 			break;
 		}
 		// Logout
@@ -242,7 +251,7 @@ void processMessage(int SocketFD)
 {
 	char buffer[256], msg[256], msgType, nickname[256];
 	int n, i, tmpSize;
-	int byteSize[] = {5, 3, 7};
+	int byteSize[] = {5, 3, 7, 5};
 	int byteSizeAux[] = {0, 7, 5};
 
 	bzero(buffer, 256);
@@ -363,6 +372,30 @@ void processMessage(int SocketFD)
 		// who is in the server?
 		case 't':
 		{
+			i = 3;
+			n = read(SocketFD, buffer, byteSize[i]);
+			buffer[n] = '\0';
+			tmpSize = atoi(buffer);
+
+			n = read(SocketFD, buffer, tmpSize);
+			buffer[n] = '\0';
+			strcpy(msg, buffer);
+
+			json clientList = json::parse(msg);
+
+			printf("\n"
+				"----------------------------------------\n"
+				"Users:\n"
+			);
+			for(auto u : clientList["users"])
+			{
+				//printf("- %s\n", u);
+				cout<<"- "<<u<<"\n";
+			}
+			printf("\n"
+				"----------------------------------------\n"
+			);
+
 			break;
 		}
 		// receive file

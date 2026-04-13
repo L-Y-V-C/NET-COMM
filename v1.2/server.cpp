@@ -60,7 +60,7 @@ void prepareMessage(int op, char *buffer, char (*data)[256])
 {
 	char msg[256], msgSizeStr[20], tmpSizeStr[20];
 	int msgSize, tmpSize, offset;
-	int byteSize[] = {0, 5, 3, 7};
+	int byteSize[] = {0, 5, 3, 7, 5};
 	int byteSizeAux[] = {0, 0, 7, 5};
 
 	offset = 1;
@@ -137,6 +137,15 @@ void prepareMessage(int op, char *buffer, char (*data)[256])
 		// send client list
 		case 4:
 		{
+			buffer[0] = 't';
+
+			tmpSize = strlen(data[0]);
+			convertIntToString(byteSize[op], tmpSize, tmpSizeStr);
+
+			memcpy(buffer + offset, tmpSizeStr, byteSize[op]);
+			offset += byteSize[op];
+			memcpy(buffer + offset, data[0], tmpSize);
+
 			break;
 		}
 		default:
@@ -313,10 +322,16 @@ void processMessage(int ConnectFD)
 
 			for(auto c : clients)
 			{
-				clientList["users"].push_back(c.first);
+				clientListJson["users"].push_back(c.first);
 			}
 
 			string clientListStr = clientListJson.dump();
+			strcpy(data[0], clientListStr.c_str());
+
+			prepareMessage(4, buffer, data);
+
+			//printf("\nmsg: %s\n", buffer);
+			write(ConnectFD, buffer, strlen(buffer));
 
 			break;
 		}
