@@ -108,7 +108,7 @@ void makeMessage(int op, int SocketFD)
 {
 	char buffer[256], input[256], inputSizeStr[20];
 	int inputSize, offset;
-	int byteSize[] = {4, 7, 5};
+	int byteSize[] = {4, 7, 5, 5};
 	int byteSizeAux[] = {0, 0, 7};
 
 	offset = 1;
@@ -195,8 +195,67 @@ void makeMessage(int op, int SocketFD)
 		// send file
 		case 3:
 		{
-			buffer[0] = 'F';
+			char fileChunk[10], readBuffer[9999], writeBuffer[9999];
+			int bytesRead, readSize = 0;
 
+			bzero(writeBuffer, 9999);
+
+			writeBuffer[0] = 'F';
+
+			printf("File name: ");
+			fflush(stdout);
+			fgets(input, 256, stdin);
+
+			inputSize = strlen(input) - 1;
+			input[inputSize] = '\0';
+
+			string fileName(input);
+			fileName = "send/" + fileName;
+
+			FILE *file = fopen(fileName.c_str(), "rb");
+
+			if(!file)
+			{
+				printf("Cannot open the file\n");
+				return;
+			}
+			while ((bytesRead = fread(fileChunk, 1, 10, file)) > 0)
+			{
+				memcpy(readBuffer + readSize, fileChunk, bytesRead);
+				readSize += bytesRead;
+			}
+
+			fclose(file);
+
+			convertIntToString(byteSize[op], readSize, inputSizeStr);
+
+			printf("\nfilesize: %s - %d\n", inputSizeStr, readSize);
+
+			memcpy(writeBuffer + offset, inputSizeStr, byteSize[op]);
+			offset += byteSize[op];
+			memcpy(writeBuffer + offset, readBuffer, readSize);
+			offset += readSize;
+
+			convertIntToString(byteSize[op], inputSize, inputSizeStr);
+
+			memcpy(writeBuffer + offset, inputSizeStr, byteSize[op]);
+			offset += byteSize[op];
+			memcpy(writeBuffer + offset, input, inputSize);
+			offset += inputSize;
+
+			printf("To: ");
+			fflush(stdout);
+			fgets(input, 256, stdin);
+
+			inputSize = strlen(input) - 1;
+			convertIntToString(byteSize[op], inputSize, inputSizeStr);
+
+			memcpy(writeBuffer + offset, inputSizeStr, byteSize[op]);
+			offset += byteSize[op];
+			memcpy(writeBuffer + offset, input, inputSize);
+
+			//cout<<"\nmsg size: "<<strlen(writeBuffer)<<"\nmsg:\n["<<writeBuffer<<"]\n";
+			write(SocketFD, writeBuffer, strlen(writeBuffer));
 
 			break;
 		}
@@ -251,7 +310,7 @@ void processMessage(int SocketFD)
 {
 	char buffer[256], msg[256], msgType, nickname[256];
 	int n, i, tmpSize;
-	int byteSize[] = {5, 3, 7, 5};
+	int byteSize[] = {5, 3, 7, 5, 5};
 	int byteSizeAux[] = {0, 7, 5};
 
 	bzero(buffer, 256);
@@ -401,6 +460,63 @@ void processMessage(int SocketFD)
 		// receive file
 		case 'f':
 		{
+			i = 4;
+
+			char readBuffer[9999], fileData[9999];
+			int fileSize = 0;
+
+			bzero(readBuffer, 9999);
+
+			n = read(SocketFD, readBuffer, byteSize[i]);
+			readBuffer[n] = '\0';
+			tmpSize = atoi(readBuffer);
+
+			while (fileSize < tmpSize)
+			{
+				n = read(SocketFD, fileData + fileSize, tmpSize - fileSize);
+				fileSize += n;
+			}
+
+			n = read(SocketFD, readBuffer, byteSize[i]);
+			readBuffer[n] = '\0';
+			tmpSize = atoi(readBuffer);
+
+			n = read(SocketFD, readBuffer, tmpSize);
+			readBuffer[n] = '\0';
+			strcpy(msg, readBuffer);
+
+			n = read(SocketFD, readBuffer, byteSize[i]);
+			readBuffer[n] = '\0';
+			tmpSize = atoi(readBuffer);
+
+			n = read(SocketFD, readBuffer, tmpSize);
+			readBuffer[n] = '\0';
+			strcpy(nickname, readBuffer);
+
+			string fileName(msg);
+			fileName = "receive/" + fileName;
+
+			FILE *file = fopen(fileName.c_str(), "wb");
+
+			if (!file)
+			{
+				printf("Cannot create the file\n");
+				break;
+			}
+
+			fwrite(fileData, 1, fileSize, file);
+			fclose(file);
+
+			printf("\n"
+				"----------------------------------\n"
+				"File received\n"
+				"From: %s\n"
+				"File name: %s\n"
+				"----------------------------------\n"
+				, nickname, msg
+			);
+			fflush(stdout);
+
 			break;
 		}
 		default:

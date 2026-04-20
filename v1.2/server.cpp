@@ -148,6 +148,13 @@ void prepareMessage(int op, char *buffer, char (*data)[256])
 
 			break;
 		}
+		// send file
+		case 5:
+		{
+			buffer[0] = 'f';
+
+			break;
+		}
 		default:
 			break;
 	}
@@ -173,7 +180,7 @@ void processMessage(int ConnectFD)
 {
 	char buffer[256], data[3][256], msgType;
 	int n, op, tmpSize;
-	int byteSize[] = {4, 7, 5};
+	int byteSize[] = {4, 7, 5, 5};
 	int byteSizeAux[] = {0, 0, 7};
 
 	bzero(buffer, 256);
@@ -338,6 +345,94 @@ void processMessage(int ConnectFD)
 		// request file transfer
 		case 'F':
 		{
+			op = 3;
+
+			char rwBuffer[9999], fileData[9999];
+			int fileSize = 0;
+
+			bzero(rwBuffer, 9999);
+
+			n = read(ConnectFD, rwBuffer, byteSize[op]);
+			rwBuffer[n] = '\0';
+			tmpSize = atoi(rwBuffer);
+
+			while (fileSize < tmpSize)
+			{
+				n = read(ConnectFD, fileData + fileSize, tmpSize - fileSize);
+				fileSize += n;
+			}
+
+			n = read(ConnectFD, rwBuffer, byteSize[op]);
+			rwBuffer[n] = '\0';
+			tmpSize = atoi(rwBuffer);
+
+			n = read(ConnectFD, rwBuffer, tmpSize);
+			rwBuffer[n] = '\0';
+			strcpy(data[0], rwBuffer);
+
+			n = read(ConnectFD, rwBuffer, byteSize[op]);
+			rwBuffer[n] = '\0';
+			tmpSize = atoi(rwBuffer);
+
+			n = read(ConnectFD, rwBuffer, tmpSize);
+			rwBuffer[n] = '\0';
+			strcpy(data[2], rwBuffer);
+
+			for(auto c : clients)
+			{
+				if(c.second == ConnectFD)
+				{
+					strcpy(data[1], c.first.c_str());
+				}
+			}
+
+			string nickname = data[2];
+
+			auto it = clients.find(nickname);
+
+			if(it == clients.end())
+			{
+				// TODO: ask the professor
+				printf("\nERROR: user not found\n");
+				break;
+			}
+
+			int TargetFD = it->second;
+
+			// fileSize - fileData - size data[0] - data[0] - size data[1] - data[1]
+
+			bzero(rwBuffer, 9999);
+
+			rwBuffer[0] = 'f';
+
+			char tmpSizeStr[20];
+			int offset = 1;
+
+			convertIntToString(byteSize[op], fileSize, tmpSizeStr);
+
+			memcpy(rwBuffer + offset, tmpSizeStr, byteSize[op]);
+			offset += byteSize[op];
+			memcpy(rwBuffer + offset, fileData, fileSize);
+			offset += fileSize;
+
+			tmpSize = strlen(data[0]);
+			convertIntToString(byteSize[op], tmpSize, tmpSizeStr);
+
+			memcpy(rwBuffer + offset, tmpSizeStr, byteSize[op]);
+			offset += byteSize[op];
+			memcpy(rwBuffer + offset, data[0], tmpSize);
+			offset += tmpSize;
+
+			tmpSize = strlen(data[1]);
+			convertIntToString(byteSize[op], tmpSize, tmpSizeStr);
+
+			memcpy(rwBuffer + offset, tmpSizeStr, byteSize[op]);
+			offset += byteSize[op];
+			memcpy(rwBuffer + offset, data[1], tmpSize);
+
+			//cout<<"\nmsg:\n"<<rwBuffer<<endl;
+			write(TargetFD, rwBuffer, strlen(rwBuffer));
+
 			break;
 		}
 		default:
