@@ -21,39 +21,21 @@ using namespace std;
 
 map<string, int> clients;
 
-void processMessage(int ConnectFD);
-void sendFunction(int ConnectFD);
+bool processMessage(int ConnectFD);
 void receiveFunction(int ConnectFD);
 void prepareMessage(int op, char *buffer);
 void convertIntToString(int byteSize, int num, char *str);
-
-void sendFunction(int ConnectFD)
-{
-	char buffer[256];
-	for(;;)
-	{
-		bzero(buffer, 256);
-		fgets(buffer, 256, stdin);
-		write(ConnectFD, buffer, strlen(buffer));
-	}
-}
 
 void receiveFunction(int ConnectFD)
 {
 	for(;;)
 	{
-		processMessage(ConnectFD);
-
-		/*
-		n = read(ConnectFD, buffer, 255);
-
-		if(n <= 0)
-		{
-			close(ConnectFD);
+		if(!processMessage(ConnectFD))
 			break;
-		}
-		*/
 	}
+	shutdown(ConnectFD, SHUT_RDWR);
+	close(ConnectFD);
+
 }
 
 void prepareMessage(int op, char *buffer, char (*data)[256])
@@ -80,7 +62,7 @@ void prepareMessage(int op, char *buffer, char (*data)[256])
 		{
 			buffer[0] = 'E';
 
-			strcpy(msg, "ERROR FROM SERVER!");
+			strcpy(msg, data[0]);
 			msgSize = strlen(msg);
 			convertIntToString(byteSize[op], msgSize, msgSizeStr);
 
@@ -148,13 +130,6 @@ void prepareMessage(int op, char *buffer, char (*data)[256])
 
 			break;
 		}
-		// send file
-		case 5:
-		{
-			buffer[0] = 'f';
-
-			break;
-		}
 		default:
 			break;
 	}
@@ -176,7 +151,7 @@ void convertIntToString(int byteSize, int num, char *str)
 	}
 }
 
-void processMessage(int ConnectFD)
+bool processMessage(int ConnectFD)
 {
 	char buffer[256], data[3][256], msgType;
 	int n, op, tmpSize;
@@ -186,7 +161,12 @@ void processMessage(int ConnectFD)
 	bzero(buffer, 256);
 
 	n = read(ConnectFD, buffer, 1);
-	//buffer[n] = '\0';
+
+	if(n <= 0)
+	{
+		printf("\nClient disconnected\n");
+		return false;
+	}
 
 	msgType = buffer[0];
 
@@ -204,35 +184,41 @@ void processMessage(int ConnectFD)
 			buffer[n] = '\0';
 			strcpy(data[0], buffer);
 
-			printf("\nuser: %s\n", data[0]);
-
 			if(clients.find(data[0]) != clients.end())
 			{
+				strcpy(data[0], "Nickname already in use, try another");
 				prepareMessage(1, buffer, data);
 			}
 			else
 			{
 				clients[data[0]] = ConnectFD;
+				printf("\nConnected user: %s\n", data[0]);
 				prepareMessage(0, buffer, data);
 			}
 			write(ConnectFD, buffer, strlen(buffer));
-			//printf("\nmsg: %s\n", buffer);
 
 			break;
 		}
 		// request Logout
 		case 'O':
 		{
-			for(auto it = clients.begin(); it != clients.end(); it++)
+			string deleteUser;
+
+			for(auto &c : clients)
 			{
-				if(it->second == ConnectFD)
+				if(c.second == ConnectFD)
 				{
-					clients.erase(it);
+					deleteUser = c.first;
+					cout<<"\nDisconnection request from: "<<deleteUser<<endl;
 					break;
 				}
 			}
-			shutdown(ConnectFD, SHUT_RDWR);
-			close(ConnectFD);
+
+			if(!deleteUser.empty())
+			{
+				clients.erase(deleteUser);
+				cout<<"Disconnected user: "<<deleteUser<<endl;
+			}
 
 			break;
 		}
@@ -269,11 +255,8 @@ void processMessage(int ConnectFD)
 				break;
 			}
 
-			//printf("\nmsg: %s\n", buffer);
 			for(auto c : clients)
-			{
 				write(c.second, buffer, strlen(buffer));
-			}
 
 			break;
 		}
@@ -301,9 +284,7 @@ void processMessage(int ConnectFD)
 			for(auto c : clients)
 			{
 				if(c.second == ConnectFD)
-				{
 					strcpy(data[0], c.first.c_str());
-				}
 			}
 
 			string nickname = data[2];
@@ -311,13 +292,13 @@ void processMessage(int ConnectFD)
 			if(auto search = clients.find(nickname); search != clients.end())
 			{
 				prepareMessage(3, buffer, data);
-				//printf("\nmsg: %s\n", buffer);
 				write(search->second, buffer, strlen(buffer));
 			}
 			else
 			{
-				// TODO: ask the professor
-				printf("\nERROR: user not found\n");
+				strcpy(data[0], "Destination Nickname not found");
+				prepareMessage(1, buffer,data);
+				write(ConnectFD, buffer, strlen(buffer));
 			}
 
 			break;
@@ -328,16 +309,13 @@ void processMessage(int ConnectFD)
 			json clientListJson;
 
 			for(auto c : clients)
-			{
 				clientListJson["users"].push_back(c.first);
-			}
 
 			string clientListStr = clientListJson.dump();
 			strcpy(data[0], clientListStr.c_str());
 
 			prepareMessage(4, buffer, data);
 
-			//printf("\nmsg: %s\n", buffer);
 			write(ConnectFD, buffer, strlen(buffer));
 
 			break;
@@ -347,10 +325,10 @@ void processMessage(int ConnectFD)
 		{
 			op = 3;
 
-			char rwBuffer[9999], fileData[9999];
+			char rwBuffer[10000], fileData[10000];
 			int fileSize = 0;
 
-			bzero(rwBuffer, 9999);
+			bzero(rwBuffer, 10000);
 
 			n = read(ConnectFD, rwBuffer, byteSize[op]);
 			rwBuffer[n] = '\0';
@@ -381,9 +359,7 @@ void processMessage(int ConnectFD)
 			for(auto c : clients)
 			{
 				if(c.second == ConnectFD)
-				{
 					strcpy(data[1], c.first.c_str());
-				}
 			}
 
 			string nickname = data[2];
@@ -392,8 +368,10 @@ void processMessage(int ConnectFD)
 
 			if(it == clients.end())
 			{
-				// TODO: ask the professor
-				printf("\nERROR: user not found\n");
+				strcpy(data[0], "Destination Nickname not found");
+				prepareMessage(1, buffer,data);
+				write(ConnectFD, buffer, strlen(buffer));
+
 				break;
 			}
 
@@ -401,7 +379,7 @@ void processMessage(int ConnectFD)
 
 			// fileSize - fileData - size data[0] - data[0] - size data[1] - data[1]
 
-			bzero(rwBuffer, 9999);
+			bzero(rwBuffer, 10000);
 
 			rwBuffer[0] = 'f';
 
@@ -430,7 +408,6 @@ void processMessage(int ConnectFD)
 			offset += byteSize[op];
 			memcpy(rwBuffer + offset, data[1], tmpSize);
 
-			//cout<<"\nmsg:\n"<<rwBuffer<<endl;
 			write(TargetFD, rwBuffer, strlen(rwBuffer));
 
 			break;
@@ -438,8 +415,7 @@ void processMessage(int ConnectFD)
 		default:
 			break;
 	}
-
-	//buffer[strcspn(buffer, "\n")] = 0;
+	return true;
 }
 
 int main(void)
@@ -477,7 +453,6 @@ int main(void)
 	{
 		int ConnectFD = accept(SocketFD, NULL, NULL);
 
-		//thread(sendFunction, ConnectFD).detach();
 		thread(receiveFunction, ConnectFD).detach();
 
 		//shutdown(ConnectFD, SHUT_RDWR);

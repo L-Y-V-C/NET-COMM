@@ -11,22 +11,56 @@
 
 #include <iostream>
 #include <thread>
-//#include <atomic>
+#include <atomic>
 #include "json.hpp"
 
 using json = nlohmann::json;
 using namespace std;
 
-//atomic<int> connected(1);
+atomic<bool> connected(true);
+atomic<bool> logged(false);
 
 void convertIntToString(int byteSize, int num, char *str);
 void sendFunction(int SocketFD);
 void receiveFunction(int SocketFD);
-void processMessage(int SocketFD);
+bool processMessage(int SocketFD);
 void print1stMenu(int &op);
 void print2ndMenu(int &op);
 void checkOption(int op, int menu, int SocketFD);
 void makeMessage(int op, int SocketFD);
+
+void sendFunction(int SocketFD)
+{
+	int op;
+
+	for(;connected;)
+	{
+		if(!logged)
+		{
+			print1stMenu(op);
+			checkOption(op, 1, SocketFD);
+		}
+		else
+		{
+			print2ndMenu(op);
+			checkOption(op, 2, SocketFD);
+		}
+	}
+}
+
+void receiveFunction(int SocketFD)
+{
+	for(;;)
+	{
+		if(!processMessage(SocketFD))
+		{
+			connected = false;
+			break;
+		}
+	}
+	shutdown(SocketFD, SHUT_RDWR);
+	close(SocketFD);
+}
 
 void print1stMenu(int &op)
 {
@@ -55,7 +89,7 @@ void print2ndMenu(int &op)
 		"|  [3] - Send file            |\n"
 		"|           Others            |\n"
 		"|  [4] - Get client list      |\n"
-		"|  [0] - Logout               |\n"
+		"|  [5] - Logout               |\n"
 		"-------------------------------\n"
 	);
 	fflush(stdout);
@@ -95,6 +129,9 @@ void checkOption(int op, int menu, int SocketFD)
 				case 4:
 					makeMessage(4, SocketFD);
 					break;
+				case 5:
+					makeMessage(5, SocketFD);
+					break;
 				default:
 					break;
 			}
@@ -124,7 +161,6 @@ void makeMessage(int op, int SocketFD)
 			printf("Nickname: ");
 			fflush(stdout);
 			fgets(input, 256, stdin);
-			//buffer[strcspn(buffer, "\n")] = 0;
 
 			inputSize = strlen(input) - 1;
 			convertIntToString(byteSize[op] , inputSize, inputSizeStr);
@@ -133,7 +169,6 @@ void makeMessage(int op, int SocketFD)
 			offset += byteSize[op];
 			memcpy(buffer + offset, input, inputSize);
 
-			//printf("msg:\n[%s]\n", buffer);
 			write(SocketFD, buffer, strlen(buffer));
 
 			break;
@@ -154,7 +189,6 @@ void makeMessage(int op, int SocketFD)
 			offset += byteSize[op];
 			memcpy(buffer + offset, input, inputSize);
 
-			//printf("msg:\n[%s]\n", buffer);
 			write(SocketFD, buffer, strlen(buffer));
 
 			break;
@@ -187,7 +221,6 @@ void makeMessage(int op, int SocketFD)
 			offset += byteSizeAux[op];
 			memcpy(buffer + offset, input, inputSize);
 
-			//printf("msg:\n[%s]\n", buffer);
 			write(SocketFD, buffer, strlen(buffer));
 
 			break;
@@ -195,10 +228,10 @@ void makeMessage(int op, int SocketFD)
 		// send file
 		case 3:
 		{
-			char fileChunk[10], readBuffer[9999], writeBuffer[9999];
+			char fileChunk[10], readBuffer[10000], writeBuffer[10000];
 			int bytesRead, readSize = 0;
 
-			bzero(writeBuffer, 9999);
+			bzero(writeBuffer, 10000);
 
 			writeBuffer[0] = 'F';
 
@@ -210,13 +243,13 @@ void makeMessage(int op, int SocketFD)
 			input[inputSize] = '\0';
 
 			string fileName(input);
-			fileName = "send/" + fileName;
+			fileName = "send-" + fileName;
 
 			FILE *file = fopen(fileName.c_str(), "rb");
 
 			if(!file)
 			{
-				printf("Cannot open the file\n");
+				printf("ERROR!\nCannot open the file\n");
 				return;
 			}
 			while ((bytesRead = fread(fileChunk, 1, 10, file)) > 0)
@@ -228,8 +261,6 @@ void makeMessage(int op, int SocketFD)
 			fclose(file);
 
 			convertIntToString(byteSize[op], readSize, inputSizeStr);
-
-			printf("\nfilesize: %s - %d\n", inputSizeStr, readSize);
 
 			memcpy(writeBuffer + offset, inputSizeStr, byteSize[op]);
 			offset += byteSize[op];
@@ -254,7 +285,6 @@ void makeMessage(int op, int SocketFD)
 			offset += byteSize[op];
 			memcpy(writeBuffer + offset, input, inputSize);
 
-			//cout<<"\nmsg size: "<<strlen(writeBuffer)<<"\nmsg:\n["<<writeBuffer<<"]\n";
 			write(SocketFD, writeBuffer, strlen(writeBuffer));
 
 			break;
@@ -272,7 +302,11 @@ void makeMessage(int op, int SocketFD)
 		case 5:
 		{
 			buffer[0] = 'O';
+
 			write(SocketFD, buffer, 1);
+
+			logged = false;
+
 			break;
 		}
 		default:
@@ -280,33 +314,7 @@ void makeMessage(int op, int SocketFD)
 	}
 }
 
-void sendFunction(int SocketFD)
-{
-	int op;//status; // status - x = logged - 0 = logged out
-	//status = 0;
-	op = 0;
-
-	for(;;)
-	{
-		if(!op)
-		{
-			print1stMenu(op);
-			checkOption(op, 1, SocketFD);
-		}
-		print2ndMenu(op);
-		checkOption(op, 2, SocketFD);
-	}
-}
-
-void receiveFunction(int SocketFD)
-{
-	for(;;)
-	{
-		processMessage(SocketFD);
-	}
-}
-
-void processMessage(int SocketFD)
+bool processMessage(int SocketFD)
 {
 	char buffer[256], msg[256], msgType, nickname[256];
 	int n, i, tmpSize;
@@ -317,16 +325,14 @@ void processMessage(int SocketFD)
 
 	n = read(SocketFD, buffer, 1);
 
-	if(n == 0)
+	if(n <= 0)
 	{
 		printf("\n"
 			"----------------------\n"
 			"You were disconnected!\n"
 			"----------------------\n"
 		);
-		exit(0);
-		//connected = 0;
-		//return;
+		return false;
 	}
 
 	msgType = buffer[0];
@@ -336,11 +342,15 @@ void processMessage(int SocketFD)
 		// correct login msg
 		case 'K':
 		{
+			logged = true;
+
 			printf("\n"
 				"----------------------------\n"
 				"Nickname saved successfully!\n"
 				"----------------------------\n"
 			);
+			fflush(stdout);
+
 			break;
 		}
 		// receive error msg
@@ -447,10 +457,7 @@ void processMessage(int SocketFD)
 				"Users:\n"
 			);
 			for(auto u : clientList["users"])
-			{
-				//printf("- %s\n", u);
 				cout<<"- "<<u<<"\n";
-			}
 			printf("\n"
 				"----------------------------------------\n"
 			);
@@ -462,10 +469,10 @@ void processMessage(int SocketFD)
 		{
 			i = 4;
 
-			char readBuffer[9999], fileData[9999];
+			char readBuffer[10000], fileData[10000];
 			int fileSize = 0;
 
-			bzero(readBuffer, 9999);
+			bzero(readBuffer, 10000);
 
 			n = read(SocketFD, readBuffer, byteSize[i]);
 			readBuffer[n] = '\0';
@@ -494,13 +501,13 @@ void processMessage(int SocketFD)
 			strcpy(nickname, readBuffer);
 
 			string fileName(msg);
-			fileName = "receive/" + fileName;
+			fileName = "receive-" + fileName;
 
 			FILE *file = fopen(fileName.c_str(), "wb");
 
 			if (!file)
 			{
-				printf("Cannot create the file\n");
+				printf("\nERROR!\nCannot create the file\n");
 				break;
 			}
 
@@ -522,6 +529,11 @@ void processMessage(int SocketFD)
 		default:
 			break;
 	}
+	printf("\n"
+		"Press ENTER to show menu\n"
+		"------------------------\n"
+	);
+	return true;
 }
 
 void convertIntToString(int byteSize, int num, char *str)
